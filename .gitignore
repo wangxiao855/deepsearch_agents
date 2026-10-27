@@ -1,0 +1,32 @@
+# 环境变量与密钥：绝对不要提交（.env 里是真实的模型/搜索/数据库凭据）
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 运行产物与会话数据
+output/
+upload/
+images/
+*.log
+
+# 权限诊断报告（排查 Windows 文件权限问题时生成，不属于项目代码）
+_acl-report/
+
+# 本地临时验证脚本
+_e2e.py
+_e2e_out.txt
+
+# IDE
+.idea/
+.vscode/
+
+# 前端
+UI/node_modules/
+UI/dist/
