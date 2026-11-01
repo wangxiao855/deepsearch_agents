@@ -9,9 +9,14 @@ from utils.path_utils import resolve_path
 # Markdown生成工具
 def generate_markdown(
         content: Annotated[str, "要写入文档的文本内容"],
-        filename: Annotated[str, "文档的文件名）"],
+        filename: Annotated[str, "文档的文件名"],
         path: Annotated[str, "文件保存的绝对路径"] = ""
 ):
+    """把文本内容写成 Markdown 文件，保存到当前会话的工作目录。
+    用于交付报告：用户明确要求出报告 / 导出 / 整理成文档 / 发我时调用，
+    先把结论写成 .md；需要 PDF 时再交给 convert_md_to_pdf 转换，不要跳过 Markdown。
+    filename 使用有业务含义的中文名，不要带目录前缀。
+    """
     monitor.report_tool("Markdown文档生成工具", {"写入的文本内容": content})
 
     if not filename.endswith('.md'):

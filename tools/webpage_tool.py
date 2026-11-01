@@ -38,7 +38,7 @@ _SKIP_PATTERNS = (
 
 
 def _fetch_by_httpx(url: str):
-    """优先用 httpx 抓取"""
+    """优先用httpx抓取"""
     try:
         import httpx
 
@@ -69,41 +69,6 @@ def _fetch_by_requests(url: str):
     except Exception as e:
         logger.warning("requests 抓取失败 {}: {}".format(url, e))
     return None, None
-
-
-def _jina_available() -> bool:
-    """熔断器，连续失败达到阈值后，本进程内不再尝试"""
-    return _JINA_ENABLED and _jina_failures < _JINA_MAX_FAILURES
-
-
-def _fetch_by_jina(url: str) -> str:
-    """
-    第三方抽取服务：把目标页交给JinaReader渲染成Markdown
-    """
-    global _jina_failures
-    if not _jina_available():
-        return ""
-    try:
-        import httpx
-        timeout = min(_TIMEOUT, 8.0) + 2
-        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            resp = client.get("https://r.jina.ai/{}".format(url), headers={"User-Agent": _UA})
-            if resp.status_code == 200 and resp.text:
-                _jina_failures = 0
-                return resp.text
-            _jina_failures += 1
-            logger.warning(
-                "Jina 返回状态码 {}（连续失败 {} 次）".format(resp.status_code, _jina_failures)
-            )
-    except Exception as e:
-        _jina_failures += 1
-        logger.warning("Jina 抓取失败 {}: {}".format(url, e))
-    if _jina_failures >= _JINA_MAX_FAILURES:
-        logger.warning(
-            "Jina Reader 连续失败 {} 次，本进程内不再尝试；".format(_jina_failures)
-        )
-    return ""
-
 
 def _extract_with_lxml(html: str):
     """
@@ -152,6 +117,42 @@ def _extract_with_lxml(html: str):
         if not deduped or deduped[-1] != block:
             deduped.append(block)
     return "\n".join(deduped), title
+
+def _jina_available() -> bool:
+    """熔断器，连续失败达到阈值后，本进程内不再尝试"""
+    return _JINA_ENABLED and _jina_failures < _JINA_MAX_FAILURES
+
+
+def _fetch_by_jina(url: str) -> str:
+    """
+    第三方抽取服务：把目标页交给JinaReader渲染成Markdown
+    """
+    global _jina_failures
+    if not _jina_available():
+        return ""
+    try:
+        import httpx
+        timeout = min(_TIMEOUT, 8.0) + 2
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get("https://r.jina.ai/{}".format(url), headers={"User-Agent": _UA})
+            if resp.status_code == 200 and resp.text:
+                _jina_failures = 0
+                return resp.text
+            _jina_failures += 1
+            logger.warning(
+                "Jina 返回状态码 {}（连续失败 {} 次）".format(resp.status_code, _jina_failures)
+            )
+    except Exception as e:
+        _jina_failures += 1
+        logger.warning("Jina 抓取失败 {}: {}".format(url, e))
+    if _jina_failures >= _JINA_MAX_FAILURES:
+        logger.warning(
+            "Jina Reader 连续失败 {} 次，本进程内不再尝试；".format(_jina_failures)
+        )
+    return ""
+
+
+
 
 
 def _strip_tags(html: str) -> str:
@@ -210,14 +211,14 @@ def fetch_webpage(
 
     # 改走 Jina
     if len(text) < _MIN_USEFUL_CHARS and _jina_available():
-        logger.info("[webpage] 直连正文过短（{} 字），改用 Jina Reader".format(len(text)))
+        logger.info("直连正文过短，改用 Jina Reader".format(len(text)))
         jina_text = _fetch_by_jina(target)
         if len(jina_text) > len(text):
             text = jina_text
 
     if len(text) < 100:
         return (
-            "抓取失败：{} 没有取到有效正文（可能被反爬拦截或需要登录）。"
+            "抓取失败：没有取到有效正文（可能被反爬拦截或需要登录）。"
             "请改用其他来源，或在结论中说明该信息未获取到。".format(target)
         )
 
