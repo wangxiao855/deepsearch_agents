@@ -108,6 +108,18 @@ class ToolMonitor:
             {"title": title, "url": url, "note": note, "published": published},
         )
 
+    def report_answer_chunk(self, text: str):
+        """
+        报告最终回答的增量文本（token 级），前端边收边拼。
+
+        为什么需要它：一次购车咨询要跑好几分钟，如果只在最后发一次 task_result，
+        用户会盯着转圈等上十分钟，不知道是在干活还是卡死了。
+        这个事件让正文字一个一个出现，同时 task_result 仍会在结束时补发完整文本。
+        """
+        if not text:
+            return
+        self._emit("answer_chunk", text, {"text": text})
+
 
 # 全局单例实例
 monitor = ToolMonitor()

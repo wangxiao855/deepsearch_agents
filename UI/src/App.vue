@@ -119,6 +119,67 @@ const fetchFiles = async () => {
   }
 }
 
+// 文件列表节流：每个工具调用都会触发一次刷新，一次咨询几十次工具调用，
+// 不节流会把 /api/files 打成几百次请求（日志里全是它，把关键信息淹了）
+let filesTimer: number | null = null
+const scheduleFetchFiles = () => {
+  if (!currentSessionPath.value || filesTimer !== null) return
+  filesTimer = window.setTimeout(() => {
+    filesTimer = null
+    fetchFiles()
+  }, 1200)
+}
+
+// 流式正文：token 级增量合并后再写入，避免每来一个字就重渲染整段 Markdown
+let answerBuffer = ''
+let answerFlushTimer: number | null = null
+
+const pushAnswerChunk = (msg: Message | undefined, text: string) => {
+  if (!msg || !text) return
+  answerBuffer += text
+  if (answerFlushTimer !== null) return
+  answerFlushTimer = window.setTimeout(() => {
+    answerFlushTimer = null
+    if (!answerBuffer) return
+    if (msg.role === 'ai') msg.content += answerBuffer
+    answerBuffer = ''
+    scrollToBottom()
+  }, 80)
+}
+
+const dropAnswerBuffer = () => {
+  if (answerFlushTimer !== null) {
+    window.clearTimeout(answerFlushTimer)
+    answerFlushTimer = null
+  }
+  answerBuffer = ''
+}
+
+// 已用时长：长时间等待时用户需要知道「它还在动」，而不是盯着转圈猜
+const elapsedSec = ref(0)
+let elapsedTimer: number | null = null
+
+const startElapsed = () => {
+  elapsedSec.value = 0
+  if (elapsedTimer !== null) window.clearInterval(elapsedTimer)
+  elapsedTimer = window.setInterval(() => {
+    elapsedSec.value += 1
+  }, 1000)
+}
+
+const stopElapsed = () => {
+  if (elapsedTimer !== null) {
+    window.clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+}
+
+const elapsedText = computed(() => {
+  const s = elapsedSec.value
+  if (s < 60) return `${s} 秒`
+  return `${Math.floor(s / 60)} 分 ${s % 60} 秒`
+})
+
 // WebSocket Connection
 const connectWebSocket = () => {
   // 换会话时先断开旧连接：否则 onclose 里的自动重连会把旧 thread_id 的 socket 复活，
@@ -172,14 +233,8 @@ const handleSocketMessage = (data: any) => {
     isSidebarOpen.value = true
     fetchFiles()
   } else if (event === 'tool_start') {
-    // 触发文件列表刷新，以确保用户能看到生成的文件
-    if (currentSessionPath.value) {
-      // 延迟一点刷新，因为工具刚开始运行，文件可能还没生成
-      // 但如果是“写入文件”类工具，可能很快就有了
-      // 这里可以尝试立即刷新 + 延迟刷新
-      fetchFiles()
-      setTimeout(fetchFiles, 2000)
-    }
+    // 文件可能刚生成，节流刷新一次即可
+    scheduleFetchFiles()
 
     if (lastAiMsg) {
       if (!lastAiMsg.logs) lastAiMsg.logs = []
@@ -205,9 +260,7 @@ const handleSocketMessage = (data: any) => {
     }
   } else if (event === 'assistant_call') {
     // 同样刷新文件列表
-    if (currentSessionPath.value) {
-        fetchFiles()
-    }
+    scheduleFetchFiles()
      if (lastAiMsg) {
       if (!lastAiMsg.logs) lastAiMsg.logs = []
       lastAiMsg.logs.push({
@@ -216,6 +269,15 @@ const handleSocketMessage = (data: any) => {
         details: eventData.args,
         timestamp: new Date().toLocaleTimeString()
       })
+    }
+  } else if (event === 'answer_chunk') {
+    // 模型逐 token 输出：边收边显示，不用等整个任务结束
+    if (lastAiMsg) {
+      if (!lastAiMsg.stages) lastAiMsg.stages = []
+      if (!lastAiMsg.stages.find(s => s.name === '结论')) {
+        lastAiMsg.stages.push({ name: '结论', status: 'running' })
+      }
+      pushAnswerChunk(lastAiMsg, eventData.text || '')
     }
   } else if (event === 'stage') {
     // 四维取证进度：同一维度反复上报时按名字更新，不要重复堆叠
@@ -250,7 +312,13 @@ const handleSocketMessage = (data: any) => {
       }
     }
   } else if (event === 'task_result') {
+    // 先丢掉流式残留，再用完整文本覆盖：避免最后几个 token 追加两次
+    dropAnswerBuffer()
     if (lastAiMsg) {
+      if (lastAiMsg.stages) {
+        const concl = lastAiMsg.stages.find(s => s.name === '结论')
+        if (concl) concl.status = 'done'
+      }
       lastAiMsg.content = eventData.result
     } else {
        messages.value.push({
@@ -259,9 +327,12 @@ const handleSocketMessage = (data: any) => {
         timestamp: Date.now()
       })
     }
+    stopElapsed()
     status.value = 'idle'
     fetchFiles()
   } else if (event === 'error') {
+     dropAnswerBuffer()
+     stopElapsed()
      messages.value.push({
       role: 'system',
       content: `Error: ${message}`,
@@ -280,6 +351,7 @@ const sendMessage = async () => {
   const query = inputQuery.value
   inputQuery.value = ''
   status.value = 'running'
+  startElapsed()
 
   messages.value.push({
     role: 'user',
@@ -519,6 +591,14 @@ onMounted(() => {
                   </span>
                 </div>
 
+                <!-- 还在等第一批结果时，明确告诉用户已经等了多久 -->
+                <div
+                  v-if="status === 'running' && index === messages.length - 1 && !msg.content"
+                  class="running-hint"
+                >
+                  已处理 {{ elapsedText }} · 四路并行检索中，结论会边生成边出现
+                </div>
+
                 <!-- Logs / Thinking Process -->
                 <div v-if="msg.logs && msg.logs.length > 0" class="process-section">
                   <details>
@@ -541,7 +621,11 @@ onMounted(() => {
                 </div>
 
                 <!-- Text Content -->
-                <div class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+                <div
+                  v-if="msg.content || status !== 'running'"
+                  class="markdown-body"
+                  v-html="renderMarkdown(msg.content)"
+                ></div>
 
                 <!-- Files -->
                 <div v-if="msg.files && msg.files.length > 0" class="files-grid">
@@ -1346,6 +1430,14 @@ textarea {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+}
+
+/* 等待首批结果的提示：带已用时长，避免用户以为卡死 */
+.running-hint {
+  font-size: 0.8rem;
+  color: #6b6f73;
+  margin-bottom: 0.75rem;
+  padding-left: 0.15rem;
 }
 
 .stage-chip {

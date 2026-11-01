@@ -144,6 +144,37 @@ def reset_thread_memory(thread_id: str) -> bool:
         return False
 
 
+def _emit_answer_delta(payload) -> None:
+    """
+    把模型逐 token 输出转发给前端。
+    """
+    try:
+        chunk, meta = payload
+    except (TypeError, ValueError):
+        return
+    if not isinstance(meta, dict) or meta.get("langgraph_node") != "model":
+        return
+    if "|" in str(meta.get("langgraph_checkpoint_ns") or ""):
+        return
+
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and item.get("type") in ("text", "text_delta"):
+                parts.append(item.get("text") or "")
+        text = "".join(parts)
+    else:
+        text = ""
+
+    if text:
+        monitor.report_answer_chunk(text)
+
+
 async def run_deep_agent(query: str, thread_id: str):
     """
     触发deepagent的调用
@@ -182,8 +213,7 @@ async def run_deep_agent(query: str, thread_id: str):
                 """
         config = {"configurable": {"thread_id": thread_id}}
         tracker = {}
-        # 调用main-agent
-        async for chunk in main_agent.astream(
+        async for mode, payload in main_agent.astream(
             {
                 "messages": [
                     {
@@ -193,8 +223,12 @@ async def run_deep_agent(query: str, thread_id: str):
                 ]
             },
             config=config,
+            stream_mode=["updates", "messages"],
         ):
-            reported_result = _process_stream_chunk(chunk, tracker) or reported_result
+            if mode == "messages":
+                _emit_answer_delta(payload)
+                continue
+            reported_result = _process_stream_chunk(payload, tracker) or reported_result
 
         if not reported_result:
             monitor.report_error("任务已结束，但智能体未返回最终回复")

@@ -195,8 +195,11 @@ def fetch_webpage(
     if not allowed:
         logger.warning("正文抓取预算已用完，拒绝第 {} 次抓取: {}".format(used, target))
         return (
-            "本轮正文抓取预算已用完（上限 {} 次）。请基于已读到的页面作答，"
-            "不要再抓新页面；缺失的信息直接写「未获取到」。".format(limit)
+            "【抓取已终止】本轮正文抓取预算（{} 次）已用完，这是第 {} 次调用。\n"
+            "fetch_webpage 与 internet_search_tool 都不会再返回新内容，继续调用只是浪费轮次。\n"
+            "请立刻停止调用工具，用已读到的页面写最终结论；没读到的逐条标「未获取到」。".format(
+                limit, used
+            )
         )
 
     max_chars = max(500, min(int(max_chars or _DEFAULT_MAX_CHARS), 20000))
@@ -222,7 +225,6 @@ def fetch_webpage(
             "请改用其他来源，或在结论中说明该信息未获取到。".format(target)
         )
 
-    # 标题优先用页面 <title>，比「网页正文」这种占位名对用户有用得多
     display_title = page_title or (final_url or target)
     monitor.report_source(title=display_title, url=final_url or target, note="正文抓取")
     body = _compress(text, max_chars)
