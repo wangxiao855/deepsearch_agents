@@ -79,13 +79,14 @@
 - MySQL 8.x
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate  
+python -m venv .venv 
+
 pip install -r requirements.txt
 ```
 
 <details>
 <summary>requirements.txt 内容（折叠展开）</summary>
+
 ```
 deepagents==0.7.21
 langchain-core==1.6.6
@@ -107,12 +108,15 @@ pypdf==6.19.0
 python-docx==1.2.0
 pandas==3.0.6
 openpyxl==3.1.5
+
 Markdown==3.11
 colorlog==6.12.0
 python-dotenv==1.2.4
 PyYAML==6.0.3
+
 pywin32==312
 ```
+
 </details>
 
 ### 2. 配置
@@ -125,7 +129,7 @@ QWEN_APIKEY=
 QWEN_URL=
 QWEN_MODEL=
 
-# 网络搜索
+# 网络搜索（必填，否则行情/口碑/车主维度失效）
 TAVILY_API_KEY=
 
 # MySQL
@@ -143,9 +147,9 @@ CAR_FAULT_SNAPSHOT_DATE=2026-10-14
 # 正文抓取
 WEB_FETCH_TIMEOUT=20
 WEB_FETCH_MAX_CHARS=6000
-WEB_FETCH_JINA=auto          
+WEB_FETCH_JINA=auto             
 
-# 每轮提问的检索预算
+# 每轮提问的检索预算（四维共享）
 SEARCH_BUDGET_PER_TURN=18
 ```
 
@@ -165,7 +169,7 @@ SEARCH_BUDGET_PER_TURN=18
 ### 4. 启动
 
 ```bash
-python main.py   
+python main.py         
 ```
 
 ---
@@ -182,6 +186,8 @@ python main.py
 | `GET` | `/outputs/{path}` | output 目录的只读静态访问（报告 PDF 等） |
 | `WS` | `/ws/{thread_id}` | 实时事件流 |
 
+> `/api/cars/suggest`、`/api/cars/complaints`（车型联想、投诉案例核验）已实现但默认注释，需要时取消注释即可。
+
 ### WebSocket 事件
 
 | event | 说明 |
@@ -195,6 +201,7 @@ python main.py
 | `task_result` | 完整最终回答（与 `answer_chunk` 累计结果一致） |
 | `error` | 任务失败，前端复位状态 |
 
+
 ---
 
 ## 目录结构
@@ -202,7 +209,7 @@ python main.py
 ```
 deepsearch_agents/
 ├── main.py                     # 入口：uvicorn 启动
-├── prompt/prompts.yaml         # 全部提示词（主智能体 + 4 个子智能体）
+├── prompt/prompts.yaml         # 全部提示词（主智能体+4个子智能体）
 ├── agent/
 │   ├── main_agent.py           # 编排、日期注入、多轮记忆、流式事件解析
 │   ├── llm.py                  # 模型客户端
@@ -215,18 +222,17 @@ deepsearch_agents/
 ├── tools/
 │   ├── car_db_tool.py          # 只读查询：投诉案例 + 车型价格 + 月销量
 │   ├── internet_search_tool.py # Tavily 检索（站点白名单 / 时间范围 / 来源上报）
-│   ├── webpage_tool.py         # 正文抓取（三级降级 + 熔断）
+│   ├── webpage_tool.py         # 正文抓取+熔断
 │   ├── budget.py               # 每轮检索预算
 │   ├── upload_file_tool.py     # 读 txt/md/docx/pdf/xlsx
 │   ├── markdown_tool.py        # 写报告
 │   └── pdf_tool.py             # Markdown → PDF（Word COM）
 ├── utils/                      # 日志、路径清洗、Word 转 PDF
-├── tests/golden_cases.md       # 回归用例
+├── tests/golden_cases.md       # 回归用例（含反向用例：禁止出现什么）
 └── UI/                         # 前端
 ```
 
 ---
-
 
 ## 免责声明
 
